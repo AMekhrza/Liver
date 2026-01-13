@@ -1,0 +1,10 @@
+numpy
+SimpleITK
+PyQt6
+pyvista
+pyvistaqt
+torch
+torchvision
+ultralytics
+scipy
+scikit-image
