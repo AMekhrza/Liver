@@ -387,9 +387,21 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
 
+        header_row = QHBoxLayout()
         header = QLabel("Results")
         header.setStyleSheet("font-size: 18pt; font-weight: 800; color: #e5e7eb;")
-        layout.addWidget(header)
+        header_row.addWidget(header)
+        header_row.addStretch(1)
+        
+        # Diagnostic info label
+        self.diagnostic_label = QLabel("")
+        self.diagnostic_label.setStyleSheet("font-size: 10pt; color: #9ca3af; padding: 4px 12px;")
+        header_row.addWidget(self.diagnostic_label)
+        
+        self.results_volume_label = QLabel("Liver volume: —")
+        self.results_volume_label.setStyleSheet("font-size: 14pt; font-weight: 800; color: #a7f3d0; background: #111827; border: 1px solid #24324a; border-radius: 12px; padding: 8px 16px;")
+        header_row.addWidget(self.results_volume_label)
+        layout.addLayout(header_row)
 
         self.results_tabs = QTabWidget()
 
@@ -669,7 +681,20 @@ class MainWindow(QMainWindow):
             self.sel_slices.setText(str(info.get("num_slices", "—")))
             self.sel_shape.setText(str(getattr(self.current_image, "shape", "—")))
 
-            self._log(f"Series loaded. Shape: {self.current_image.shape}")
+            # Get actual spacing from loaded 3D image
+            if self.sitk_image is not None:
+                spacing = self.sitk_image.GetSpacing()
+                self._log(f"Series loaded. Shape: {self.current_image.shape}")
+                self._log(f"Voxel spacing (X×Y×Z mm): {spacing[0]:.4f} × {spacing[1]:.4f} × {spacing[2]:.4f}")
+                self._log(f"Voxel volume: {self.current_voxel_volume_mm3:.4f} mm³")
+                # Store spacing for display
+                self.current_spacing = spacing
+            else:
+                spacing = info.get("spacing", (1, 1, 1))
+                self._log(f"Series loaded. Shape: {self.current_image.shape}")
+                self._log(f"Voxel spacing (mm): {spacing[0]:.3f} x {spacing[1]:.3f} x {spacing[2]:.3f}")
+                self._log(f"Voxel volume: {self.current_voxel_volume_mm3:.4f} mm³")
+                self.current_spacing = spacing
 
             # Enable segmentation
             self.btn_start.setEnabled(True)
@@ -790,8 +815,47 @@ class MainWindow(QMainWindow):
     @pyqtSlot(float)
     def on_volume(self, volume_ml: float):
         self.last_volume_ml = float(volume_ml)
-        self.volume_label.setText(f"Liver volume: {volume_ml:.1f} mL")
-        self._log(f"Volume computed: {volume_ml:.1f} mL")
+        volume_text = f"Liver volume: {volume_ml:.1f} mL"
+        self.volume_label.setText(volume_text)
+        self.results_volume_label.setText(volume_text)
+        
+        # Detailed diagnostic info
+        if self.current_mask is not None:
+            num_voxels = int(np.sum(self.current_mask > 0))
+            # Count slices with liver
+            liver_slices = sum(1 for i in range(self.current_mask.shape[0]) if np.any(self.current_mask[i] > 0))
+            total_slices = self.current_mask.shape[0]
+            
+            # Get spacing info
+            spacing_text = ""
+            if hasattr(self, 'current_spacing') and self.current_spacing:
+                sp = self.current_spacing
+                spacing_text = f"Spacing: {sp[0]:.2f}×{sp[1]:.2f}×{sp[2]:.2f}mm | "
+            
+            # Show diagnostic info in Results page
+            diag_text = f"{spacing_text}Voxels: {num_voxels:,} | Voxel: {self.current_voxel_volume_mm3:.4f} mm³ | Liver in {liver_slices}/{total_slices} slices"
+            self.diagnostic_label.setText(diag_text)
+            
+            self._log(f"=== Volume Diagnostic ===")
+            if hasattr(self, 'current_spacing') and self.current_spacing:
+                sp = self.current_spacing
+                self._log(f"Spacing (X×Y×Z): {sp[0]:.4f} × {sp[1]:.4f} × {sp[2]:.4f} mm")
+            self._log(f"Liver voxels: {num_voxels:,}")
+            self._log(f"Voxel volume: {self.current_voxel_volume_mm3:.4f} mm³")
+            self._log(f"Liver in {liver_slices}/{total_slices} slices")
+            self._log(f"Volume: {volume_ml:.1f} mL ({volume_ml/1000:.2f} L)")
+            
+            # Warning if volume seems abnormal
+            if volume_ml < 800:
+                self._log(f"⚠️ WARNING: Volume seems too small for adult liver (normal: 1200-1800 mL)")
+                self.diagnostic_label.setStyleSheet("font-size: 10pt; color: #fbbf24; padding: 4px 12px;")
+            elif volume_ml > 2500:
+                self._log(f"⚠️ WARNING: Volume seems too large for adult liver (normal: 1200-1800 mL)")
+                self.diagnostic_label.setStyleSheet("font-size: 10pt; color: #fbbf24; padding: 4px 12px;")
+            else:
+                self.diagnostic_label.setStyleSheet("font-size: 10pt; color: #9ca3af; padding: 4px 12px;")
+        else:
+            self._log(f"Volume computed: {volume_ml:.1f} mL")
 
     def stop_workers(self):
         for worker in [self.dicom_worker, self.seg_worker, self.vol_worker]:

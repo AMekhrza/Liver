@@ -435,14 +435,14 @@ class ModelManager:
                 if progress_callback:
                     progress_callback(20)
                 
-                # Run TotalSegmentator - using 'fast' mode for speed
+                # Run TotalSegmentator - using full resolution for accuracy
                 logger.info("Running TotalSegmentator (this may take a few minutes)...")
                 
                 totalsegmentator(
                     input=input_nifti,
                     output=output_dir,
                     task="total",  # Full segmentation
-                    fast=True,     # Fast mode for speed
+                    fast=False,    # Full resolution for accurate volume
                     quiet=False
                 )
                 
